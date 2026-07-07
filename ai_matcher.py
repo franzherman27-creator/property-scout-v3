@@ -181,7 +181,7 @@ def _prop_ficha(prop: dict) -> str:
     partes = [
         f"Portal: {prop.get('portal', '?')}",
         f"Título: {prop.get('titulo', '')}",
-        f"Precio: {(prop.get('moneda') or '?').upper()} {prop.get('precio', 'sin publicar')}",
+        f"Precio: {(prop.get('moneda') or '?').upper()} {prop.get('precio') or 'sin publicar'}",
         f"Zona / dirección: {prop.get('zona_texto', 'sin dato')}",
         f"URL: {prop.get('url', '')}",
     ]

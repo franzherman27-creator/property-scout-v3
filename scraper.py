@@ -1,5 +1,5 @@
 """
-Property Scout v3.2 — Motor de rastreo (8 fuentes, calibrado contra portales reales)
+Property Scout v3.3 — Motor de rastreo (8 fuentes · ML API oficial · fixes de calibración)
 
   MercadoLibre   → HTML SSR de inmuebles.mercadolibre.com.ar (verificado)
   Century 21     → Playwright, URL real /v/resultados/... (verificado)
@@ -17,6 +17,7 @@ portal trae 0 (debug fácil), parse de "US$", scans serializados desde app.py.
 import asyncio
 import hashlib
 import logging
+import os
 import re
 import time
 
@@ -254,15 +255,84 @@ async def scrape_century21(context, search) -> list:
 
 # ─── Portales sin Playwright ──────────────────────────────────────────────────
 
+# ─── MercadoLibre: API oficial con credenciales de aplicación ─────────────────
+
+_ML_TOKEN = {"token": None, "expires": 0}
+
+
+def _ml_token():
+    """Token de aplicación (client_credentials). Se renueva solo antes de vencer.
+    Requiere ML_APP_ID y ML_APP_SECRET en las variables de entorno."""
+    app_id = os.environ.get("ML_APP_ID")
+    secret = os.environ.get("ML_APP_SECRET")
+    if not (app_id and secret):
+        return None
+    if _ML_TOKEN["token"] and time.time() < _ML_TOKEN["expires"] - 300:
+        return _ML_TOKEN["token"]
+    try:
+        r = requests.post(
+            "https://api.mercadolibre.com/oauth/token",
+            data={"grant_type": "client_credentials",
+                  "client_id": app_id, "client_secret": secret},
+            headers={"Accept": "application/json"}, timeout=20,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            _ML_TOKEN["token"] = d["access_token"]
+            _ML_TOKEN["expires"] = time.time() + d.get("expires_in", 21600)
+            log.info("mercadolibre: token de API obtenido OK")
+            return _ML_TOKEN["token"]
+        log.warning("mercadolibre: token rechazado (%s): %s", r.status_code, r.text[:200])
+    except Exception as e:
+        log.warning("mercadolibre: error pidiendo token: %s", e)
+    return None
+
+
 def scrape_mercadolibre(search) -> list:
-    """HTML SSR verificado: inmuebles.mercadolibre.com.ar/{tipo}/{op}/bsas-gba-sur/la-plata/
-    Sirve título, precio (US$xxx.xxx) y ubicación sin necesidad de browser ni API key.
-    El partido La Plata incluye todas las localidades."""
+    """API oficial si hay credenciales (ML_APP_ID + ML_APP_SECRET);
+    si no, intento por HTML (suele estar bloqueado desde IPs de datacenter)."""
     parsed = search["parsed"]
-    tipo = TIPO_PLURAL.get(parsed.get("tipo", "casa"), "inmuebles")
     op = parsed.get("operacion", "venta")
-    url = f"https://inmuebles.mercadolibre.com.ar/{tipo}/{op}/bsas-gba-sur/la-plata/"
+    tipo = parsed.get("tipo", "casa")
     props = []
+
+    token = _ml_token()
+    if token:
+        try:
+            r = requests.get(
+                "https://api.mercadolibre.com/sites/MLA/search",
+                params={"category": "MLA1459",
+                        "q": f"{tipo} {op} la plata", "limit": 50},
+                headers={"Authorization": f"Bearer {token}",
+                         "User-Agent": UA}, timeout=25,
+            )
+            if r.status_code == 200:
+                for item in r.json().get("results", []):
+                    url = item.get("permalink", "")
+                    if not url:
+                        continue
+                    props.append({
+                        "id": make_id(url, "mercadolibre"),
+                        "portal": "mercadolibre",
+                        "url": url,
+                        "titulo": item.get("title", "")[:200],
+                        "precio": int(item.get("price") or 0) or None,
+                        "moneda": "usd" if item.get("currency_id") == "USD" else "ars",
+                        "zona_texto": (item.get("location", {}) or {}).get("address_line", "")[:200],
+                        "descripcion": "",
+                        "fecha_detectada": time.strftime("%Y-%m-%d %H:%M"),
+                    })
+                return _dedup(props)
+            log.warning("mercadolibre API: %s — %s", r.status_code, r.text[:200])
+        except Exception as e:
+            log.warning("mercadolibre API: %s", e)
+    else:
+        log.info("mercadolibre: sin credenciales — configurá ML_APP_ID y "
+                 "ML_APP_SECRET en Railway para activar la API oficial")
+
+    # Fallback HTML (mejor que nada; bloqueado con frecuencia desde datacenter)
+    tipo_pl = TIPO_PLURAL.get(tipo, "inmuebles")
+    url = f"https://inmuebles.mercadolibre.com.ar/{tipo_pl}/{op}/bsas-gba-sur/la-plata/"
     try:
         r = requests.get(url, headers={
             "User-Agent": UA, "Accept-Language": "es-AR,es;q=0.9",
@@ -278,36 +348,41 @@ def scrape_mercadolibre(search) -> list:
             cont = a.find_parent(["li", "div", "article"]) or a
             texto = cont.get_text(" · ", strip=True)[:450]
             precio_m = re.search(r"(US\$|USD|U\$S|\$)\s?[\d.,]+", texto)
-            titulo = a.get_text(strip=True) or texto[:100]
-            zona_m = re.search(r"([\wÁÉÍÓÚÑáéíóúñ.\s]+, La Plata)", texto)
             props.append(_prop(
-                "mercadolibre", href, titulo=titulo,
+                "mercadolibre", href,
+                titulo=a.get_text(strip=True) or texto[:100],
                 precio_txt=precio_m.group(0) if precio_m else "",
-                zona_texto=zona_m.group(1) if zona_m else "",
             ))
             if len(props) >= MAX_CARDS_PER_PORTAL:
                 break
         if not props:
-            sample = [a.get("href", "")[:90] for a in soup.select("a[href]")[:5]]
-            log.info("mercadolibre: 0 links matchearon. Muestra: %s", sample)
+            log.info("mercadolibre HTML: 0 links (probable muro de login/robot)")
     except Exception as e:
-        log.warning("mercadolibre: %s", e)
+        log.warning("mercadolibre HTML: %s", e)
     return _dedup(props)
 
 
 def scrape_inmobusqueda(search) -> list:
+    """URLs verificadas: {tipo}-venta-la-plata-casco-urbano.html cubre el casco,
+    {tipo}-venta-partido-la-plata.html cubre Tolosa, Gonnet, City Bell, Villa
+    Elisa y el resto de las localidades del partido."""
     parsed = search["parsed"]
     tipo = parsed.get("tipo", "casa")
     op = parsed.get("operacion", "venta")
+    urls = [
+        f"https://www.inmobusqueda.com.ar/{tipo}-{op}-la-plata-casco-urbano.html",
+        f"https://www.inmobusqueda.com.ar/{tipo}-{op}-partido-la-plata.html",
+    ]
     props = []
-    for zona in parsed.get("zonas", ["la-plata"])[:4]:
-        url = f"https://www.inmobusqueda.com.ar/{tipo}-{op}-{zona}.html"
+    for url in urls:
         try:
             r = requests.get(url, headers={"User-Agent": UA}, timeout=20)
             soup = BeautifulSoup(r.text, "lxml")
             for a in soup.select("a[href]"):
                 href = a.get("href", "")
-                if re.search(r"-\d{5,}\.html$", href):
+                if "pagina-" in href:
+                    continue
+                if re.search(r"-\d{4,}\.html$", href):
                     if href.startswith("/"):
                         href = "https://www.inmobusqueda.com.ar" + href
                     cont = a.find_parent(["div", "li", "article"])
@@ -317,10 +392,11 @@ def scrape_inmobusqueda(search) -> list:
                         "inmobusqueda", href,
                         titulo=a.get_text(strip=True) or texto[:80],
                         precio_txt=precio_m.group(0) if precio_m else "",
-                        zona_texto=zona,
                     ))
         except Exception as e:
-            log.warning("inmobusqueda %s: %s", zona, e)
+            log.warning("inmobusqueda %s: %s", url[:70], e)
+    if not props:
+        log.info("inmobusqueda: 0 links con patrón -NNNN.html — revisar estructura")
     return _dedup(props)
 
 
