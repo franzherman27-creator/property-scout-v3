@@ -1,20 +1,22 @@
 """
-Property Scout v3 — Servidor
-Flask + scheduler. Orquesta: scrapear → pre-filtrar → evaluar con IA → guardar → avisar.
+Property Scout v3.1 — Servidor
+Cambios: scans serializados (un browser a la vez), guardado incremental
+(los resultados aparecen en el dashboard a medida que se evalúan),
+logs de inicio/fin de pipeline con duración.
 
 Endpoints:
   GET  /                      → dashboard
   POST /api/search            → {"pedido": "texto libre"} crea una búsqueda
-  GET  /api/searches          → búsquedas activas
+  GET  /api/searches          → búsquedas
   POST /api/search/<id>/toggle→ pausar / reactivar
   DELETE /api/search/<id>     → eliminar
   GET  /api/matches?search_id=→ resultados evaluados
-  POST /api/scan              → forzar scan de todas las búsquedas activas
+  POST /api/scan              → forzar scan de todas las activas
   GET  /api/status            → estado del agente
 
 Variables de entorno:
   ANTHROPIC_API_KEY   (obligatoria)
-  TELEGRAM_BOT_TOKEN  (opcional — avisos de matches nuevos)
+  TELEGRAM_BOT_TOKEN  (opcional)
   TELEGRAM_CHAT_ID    (opcional)
 """
 
@@ -40,8 +42,10 @@ DATA_DIR = "data"
 SEARCHES_FILE = os.path.join(DATA_DIR, "searches.json")
 PROPS_FILE = os.path.join(DATA_DIR, "properties.json")
 SCAN_INTERVAL_MINUTES = 60
+SCORE_CHUNK = 8  # evaluar y guardar de a tandas → resultados en vivo
 
-_lock = threading.Lock()
+_lock = threading.Lock()          # acceso a archivos
+_pipeline = threading.Semaphore(1)  # un solo scan/browser a la vez
 _scan_running = threading.Event()
 
 app = Flask(__name__, static_folder="static")
@@ -80,7 +84,7 @@ def notify(texto: str):
     try:
         requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat, "text": texto, "disable_web_page_preview": False},
+            json={"chat_id": chat, "text": texto},
             timeout=15,
         )
     except Exception as e:
@@ -90,59 +94,83 @@ def notify(texto: str):
 # ─── Núcleo: procesar una búsqueda ────────────────────────────────────────────
 
 def process_search(search: dict):
-    """Scrapea el círculo de portales, evalúa lo nuevo con IA y guarda."""
-    with _lock:
-        db = load_props()
-        known_ids = {
-            pid for pid, p in db["properties"].items()
-            if search["id"] in p.get("scores", {})
-        }
+    """Scrapea → guarda lo encontrado → evalúa con IA de a tandas → guarda cada
+    tanda. Serializado: nunca corren dos browsers a la vez."""
+    with _pipeline:
+        t0 = time.time()
+        titulo = search["parsed"].get("titulo", search["id"])
+        log.info("━━ Scan '%s' INICIADO", titulo)
 
-    log.info("Scan búsqueda '%s' (%s conocidas)", search["parsed"].get("titulo"), len(known_ids))
-    encontradas = scraper.run_scan_for_search(search, known_ids)
+        with _lock:
+            db = load_props()
+            known_ids = {
+                pid for pid, p in db["properties"].items()
+                if search["id"] in p.get("scores", {})
+            }
 
-    nuevas = [p for p in encontradas if p["id"] not in known_ids]
-    candidatas = [p for p in nuevas if ai_matcher.prefilter(search, p)]
-    log.info("Encontradas %s | nuevas %s | pasan pre-filtro %s",
-             len(encontradas), len(nuevas), len(candidatas))
+        encontradas = scraper.run_scan_for_search(search, known_ids)
+        nuevas = [p for p in encontradas if p["id"] not in known_ids]
+        candidatas = [p for p in nuevas if ai_matcher.prefilter(search, p)]
+        descartadas_pre = [p for p in nuevas if p["id"] not in {c["id"] for c in candidatas}]
+        log.info("━━ '%s': %s encontradas | %s nuevas | %s a evaluar con IA",
+                 titulo, len(encontradas), len(nuevas), len(candidatas))
 
-    resultados = ai_matcher.score_batch(search, candidatas)
-
-    matches_nuevos = []
-    with _lock:
-        db = load_props()
-        for p in encontradas:
-            entry = db["properties"].setdefault(p["id"], p)
-            entry.update({k: v for k, v in p.items() if v})  # refresca precio/desc
-            entry.setdefault("scores", {})
-            if p["id"] in resultados:
-                entry["scores"][search["id"]] = resultados[p["id"]]
-                if resultados[p["id"]].get("veredicto") == "match":
-                    matches_nuevos.append(entry)
-            elif p["id"] in {x["id"] for x in nuevas}:
-                # nueva pero descartada por pre-filtro: dejar constancia
-                entry["scores"][search["id"]] = {
+        # Guardar TODO lo encontrado ya mismo (sin esperar a la IA)
+        with _lock:
+            db = load_props()
+            for p in encontradas:
+                entry = db["properties"].setdefault(p["id"], p)
+                entry.update({k: v for k, v in p.items() if v})
+                entry.setdefault("scores", {})
+            for p in descartadas_pre:
+                db["properties"][p["id"]]["scores"][search["id"]] = {
                     "score": 0, "veredicto": "descartar",
                     "razones": ["Fuera de rango de precio (pre-filtro)"],
                     "faltantes": [], "alertas": [],
                 }
-        db["last_scan"] = datetime.now().isoformat(timespec="minutes")
-        db["scan_count"] = db.get("scan_count", 0) + 1
-        _save(PROPS_FILE, db)
+            _save(PROPS_FILE, db)
 
-    for m in matches_nuevos:
-        precio = f"{(m.get('moneda') or '').upper()} {m.get('precio') or 's/p'}"
-        score = m["scores"][search["id"]].get("score")
-        notify(f"🎯 MATCH — {search['parsed'].get('titulo')}\n"
-               f"{m.get('titulo')}\n{precio} · score {score}\n{m.get('url')}")
+        # Evaluar de a tandas y guardar cada tanda → el dashboard se va llenando
+        matches_total = 0
+        for i in range(0, len(candidatas), SCORE_CHUNK):
+            chunk = candidatas[i:i + SCORE_CHUNK]
+            resultados = ai_matcher.score_batch(search, chunk)
+            matches_chunk = []
+            with _lock:
+                db = load_props()
+                for p in chunk:
+                    if p["id"] in resultados:
+                        db["properties"][p["id"]].setdefault("scores", {})
+                        db["properties"][p["id"]]["scores"][search["id"]] = resultados[p["id"]]
+                        if resultados[p["id"]].get("veredicto") == "match":
+                            matches_chunk.append(db["properties"][p["id"]])
+                _save(PROPS_FILE, db)
+            matches_total += len(matches_chunk)
+            log.info("━━ '%s': evaluadas %s/%s (%s matches hasta ahora)",
+                     titulo, min(i + SCORE_CHUNK, len(candidatas)),
+                     len(candidatas), matches_total)
+            for m in matches_chunk:
+                precio = f"{(m.get('moneda') or '').upper()} {m.get('precio') or 's/p'}"
+                sc = m["scores"][search["id"]].get("score")
+                notify(f"🎯 MATCH — {titulo}\n{m.get('titulo')}\n"
+                       f"{precio} · score {sc}\n{m.get('url')}")
 
-    return {"encontradas": len(encontradas), "nuevas_evaluadas": len(candidatas),
-            "matches_nuevos": len(matches_nuevos)}
+        with _lock:
+            db = load_props()
+            db["last_scan"] = datetime.now().isoformat(timespec="minutes")
+            db["scan_count"] = db.get("scan_count", 0) + 1
+            _save(PROPS_FILE, db)
+
+        log.info("━━ Scan '%s' FINALIZADO en %.0fs — %s matches nuevos",
+                 titulo, time.time() - t0, matches_total)
+        return {"encontradas": len(encontradas),
+                "nuevas_evaluadas": len(candidatas),
+                "matches_nuevos": matches_total}
 
 
 def scan_all():
     if _scan_running.is_set():
-        log.info("Scan ya en curso — se saltea")
+        log.info("Scan general ya en curso — se saltea")
         return
     _scan_running.set()
     try:
@@ -245,7 +273,7 @@ def status():
     db = load_props()
     return jsonify({
         "status": "ok",
-        "scan_en_curso": _scan_running.is_set(),
+        "scan_en_curso": _scan_running.is_set() or _pipeline._value == 0,
         "last_scan": db.get("last_scan"),
         "scan_count": db.get("scan_count", 0),
         "total_propiedades": len(db.get("properties", {})),
