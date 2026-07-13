@@ -13,9 +13,12 @@ Endpoints:
   GET  /api/matches?search_id=→ resultados evaluados
   POST /api/scan              → forzar scan de todas las activas
   GET  /api/status            → estado del agente
+  POST /api/properties/ingest → recibir propiedades del scraper local
+                                 Header: X-Ingest-Token
 
 Variables de entorno:
   ANTHROPIC_API_KEY   (obligatoria)
+  INGEST_TOKEN        (obligatoria para /api/properties/ingest)
   TELEGRAM_BOT_TOKEN  (opcional)
   TELEGRAM_CHAT_ID    (opcional)
 """
@@ -276,6 +279,138 @@ def force_scan():
     return jsonify({"status": "scan iniciado"})
 
 
+@app.route("/api/properties/ingest", methods=["POST"])
+def ingest_properties():
+    """Recibe propiedades scrapeadas localmente, las deduplica y las evalúa
+    contra todas las búsquedas activas.
+
+    Header requerido: X-Ingest-Token: <INGEST_TOKEN>
+    Body: {"properties": [...]} o directamente [...]
+    """
+    # ── Autenticación ──
+    token = request.headers.get("X-Ingest-Token", "")
+    expected = os.environ.get("INGEST_TOKEN", "")
+    if not expected or token != expected:
+        log.warning("Ingest: token inválido (recibido: '%s...')", token[:6])
+        return jsonify({"error": "Token inválido o INGEST_TOKEN no configurado"}), 401
+
+    # ── Parsear body ──
+    body = request.get_json(silent=True)
+    if body is None:
+        return jsonify({"error": "Body JSON inválido"}), 400
+    raw = body.get("properties", body) if isinstance(body, dict) else body
+    if not isinstance(raw, list):
+        return jsonify({"error": "Se esperaba lista o {\"properties\": [...]}"}), 400
+
+    # ── Validar y normalizar ──
+    valid = []
+    for p in raw:
+        if not isinstance(p, dict) or not {"url", "portal"}.issubset(p):
+            continue
+        p.setdefault("id", scraper.make_id(p["url"], p["portal"]))
+        p.setdefault("titulo", "")
+        p.setdefault("precio", None)
+        p.setdefault("moneda", None)
+        p.setdefault("zona_texto", "")
+        p.setdefault("descripcion", "")
+        p.setdefault("fecha_detectada", datetime.now().strftime("%Y-%m-%d %H:%M"))
+        p.setdefault("scores", {})
+        valid.append(p)
+
+    if not valid:
+        return jsonify({"error": "Sin propiedades válidas (campos mínimos: url, portal)"}), 400
+
+    # ── Guardar y detectar nuevas ──
+    nuevas_ids: set = set()
+    with _lock:
+        db = load_props()
+        for p in valid:
+            if p["id"] not in db["properties"]:
+                nuevas_ids.add(p["id"])
+            entry = db["properties"].setdefault(p["id"], {})
+            for k, v in p.items():
+                if k == "scores":
+                    entry.setdefault("scores", {})
+                elif v:
+                    entry[k] = v
+                else:
+                    entry.setdefault(k, v)
+        _save(PROPS_FILE, db)
+
+    nuevas = [p for p in valid if p["id"] in nuevas_ids]
+    log.info("Ingest: %d recibidas | %d nuevas | %d duplicadas",
+             len(valid), len(nuevas), len(valid) - len(nuevas))
+
+    if not nuevas:
+        return jsonify({
+            "recibidas": len(valid), "nuevas": 0,
+            "duplicadas": len(valid), "evaluacion": "todo duplicado — nada nuevo",
+        })
+
+    # ── Evaluar nuevas contra búsquedas activas (en background, sin browser) ──
+    searches = [s for s in load_searches()["searches"] if s.get("active", True)]
+
+    def _score_nuevas():
+        for search in searches:
+            candidatas = [p for p in nuevas if ai_matcher.prefilter(search, p)]
+            descartadas_pre = [p for p in nuevas
+                               if p["id"] not in {c["id"] for c in candidatas}]
+
+            with _lock:
+                db = load_props()
+                for p in descartadas_pre:
+                    db["properties"][p["id"]].setdefault("scores", {})
+                    db["properties"][p["id"]]["scores"][search["id"]] = {
+                        "score": 0, "veredicto": "descartar",
+                        "razones": ["Fuera de rango de precio (pre-filtro)"],
+                        "faltantes": [], "alertas": [],
+                    }
+                _save(PROPS_FILE, db)
+
+            titulo = search["parsed"].get("titulo", search["id"])
+            log.info("Ingest scoring '%s': %d candidatas", titulo, len(candidatas))
+            for i in range(0, len(candidatas), SCORE_CHUNK):
+                chunk = candidatas[i:i + SCORE_CHUNK]
+                try:
+                    resultados = ai_matcher.score_batch(search, chunk)
+                except Exception as e:
+                    log.error("score_batch ingest '%s': %s", titulo, e)
+                    continue
+                with _lock:
+                    db = load_props()
+                    for p in chunk:
+                        if p["id"] in resultados:
+                            db["properties"][p["id"]].setdefault("scores", {})
+                            db["properties"][p["id"]]["scores"][search["id"]] = resultados[p["id"]]
+                            res = resultados[p["id"]]
+                            if res.get("veredicto") == "match":
+                                m = db["properties"][p["id"]]
+                                precio_str = (
+                                    f"{(m.get('moneda') or '').upper()} "
+                                    f"{m.get('precio') or 's/p'}"
+                                )
+                                notify(
+                                    f"🎯 MATCH (ingest) — {titulo}\n"
+                                    f"{m.get('titulo')}\n"
+                                    f"{precio_str} · score {res.get('score')}\n"
+                                    f"{m.get('url')}"
+                                )
+                    _save(PROPS_FILE, db)
+
+    if searches:
+        threading.Thread(target=_score_nuevas, daemon=True).start()
+
+    return jsonify({
+        "recibidas": len(valid),
+        "nuevas": len(nuevas),
+        "duplicadas": len(valid) - len(nuevas),
+        "evaluacion": (
+            f"scoring en background contra {len(searches)} búsqueda(s) activa(s)"
+            if searches else "sin búsquedas activas"
+        ),
+    })
+
+
 @app.route("/api/status")
 def status():
     db = load_props()
@@ -294,6 +429,25 @@ def status():
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # Verificar que /app/data es escribible al arrancar (detecta problemas de volumen temprano)
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        test_path = os.path.join(DATA_DIR, ".write_test")
+        with open(test_path, "w") as f:
+            f.write("ok")
+        os.remove(test_path)
+        log.info("DATA_DIR '%s' OK (ruta absoluta: %s)", DATA_DIR, os.path.abspath(DATA_DIR))
+    except Exception as e:
+        log.error("DATA_DIR '%s' NO escribible: %s — revisá permisos del volumen o seteá RAILWAY_RUN_UID=0", DATA_DIR, e)
+
+    # Inicializar archivos si el volumen está vacío (ej: primer deploy con volumen nuevo)
+    if not os.path.exists(SEARCHES_FILE):
+        _save(SEARCHES_FILE, {"searches": []})
+        log.info("searches.json inicializado (volumen vacío)")
+    if not os.path.exists(PROPS_FILE):
+        _save(PROPS_FILE, {"properties": {}, "last_scan": None, "scan_count": 0})
+        log.info("properties.json inicializado (volumen vacío)")
+
     scheduler = BackgroundScheduler(timezone="America/Argentina/Buenos_Aires")
     scheduler.add_job(scan_all, "interval", minutes=SCAN_INTERVAL_MINUTES, id="scan")
     scheduler.start()
