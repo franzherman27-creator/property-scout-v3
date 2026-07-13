@@ -198,8 +198,16 @@ def create_search():
         return jsonify({"error": "Falta el campo 'pedido'"}), 400
     try:
         parsed = ai_matcher.parse_pedido(pedido)
+    except RuntimeError as e:
+        msg = str(e)
+        if "Saldo de Anthropic" in msg or "credit balance" in msg or "billing" in msg.lower():
+            log.error("Anthropic billing: %s", msg)
+            return jsonify({"error": msg, "tipo": "billing"}), 503
+        log.error("parse_pedido falló: %s", msg)
+        return jsonify({"error": f"No se pudo interpretar el pedido: {msg}"}), 500
     except Exception as e:
-        return jsonify({"error": f"No se pudo interpretar el pedido: {e}"}), 500
+        log.error("parse_pedido error inesperado: %s", e)
+        return jsonify({"error": f"Error inesperado al interpretar el pedido: {e}"}), 500
 
     search = {
         "id": uuid.uuid4().hex[:8],

@@ -61,6 +61,19 @@ def _call_claude(model: str, system: str, user_content: str, max_tokens: int = 1
                 return "".join(
                     b.get("text", "") for b in data.get("content", []) if b.get("type") == "text"
                 )
+            if r.status_code == 400:
+                # Detectar error de saldo insuficiente específicamente
+                try:
+                    body = r.json()
+                    msg = body.get("error", {}).get("message", "")
+                    if "credit balance" in msg or "billing" in msg.lower():
+                        raise RuntimeError(
+                            "Saldo de Anthropic API insuficiente — recargá créditos en "
+                            "console.anthropic.com/settings/billing"
+                        )
+                except (ValueError, KeyError):
+                    pass
+                raise RuntimeError(f"API error {r.status_code}: {r.text[:300]}")
             if r.status_code in (429, 500, 502, 503, 529):
                 wait = 2 ** attempt
                 log.warning("API %s — reintento en %ss (intento %s)", r.status_code, wait, attempt)
