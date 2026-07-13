@@ -25,7 +25,7 @@ API_VERSION = "2023-06-01"
 
 # Sonnet entiende el pedido (1 llamada por búsqueda creada).
 # Haiku evalúa cada propiedad (rápido y muy barato, corre en volumen).
-MODEL_PARSER = "claude-sonnet-4-6"
+MODEL_PARSER = "claude-haiku-4-5-20251001"
 MODEL_SCORER = "claude-haiku-4-5-20251001"
 
 MAX_WORKERS = 4
