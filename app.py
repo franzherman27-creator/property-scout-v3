@@ -57,16 +57,27 @@ app = Flask(__name__, static_folder="static")
 # ─── Storage ──────────────────────────────────────────────────────────────────
 
 def _load(path, default):
-    if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return default
+    if not os.path.exists(path):
+        return default
+    for attempt in range(2):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            if attempt == 0:
+                log.warning("JSON corrupto en %s, reintentando en 100 ms…", path)
+                time.sleep(0.1)
+            else:
+                log.error("JSON corrupto en %s tras reintento, usando default", path)
+                return default
 
 
 def _save(path, data):
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
 def load_searches():
