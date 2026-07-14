@@ -262,6 +262,10 @@ def delete_search(sid):
         data = load_searches()
         data["searches"] = [s for s in data["searches"] if s["id"] != sid]
         _save(SEARCHES_FILE, data)
+        db = load_props()
+        for p in db["properties"].values():
+            p.get("scores", {}).pop(sid, None)
+        _save(PROPS_FILE, db)
     return jsonify({"ok": True})
 
 
@@ -270,9 +274,12 @@ def matches():
     sid = request.args.get("search_id")
     min_score = int(request.args.get("min_score", 0))
     db = load_props()
+    vivas = {s["id"] for s in load_searches()["searches"]}
     out = []
     for p in db["properties"].values():
         for s_id, score in p.get("scores", {}).items():
+            if s_id not in vivas:
+                continue
             if sid and s_id != sid:
                 continue
             if score.get("score", 0) >= min_score:
