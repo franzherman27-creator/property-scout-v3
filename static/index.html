@@ -3,153 +3,476 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Property Scout — Vazquez Roselli</title>
-<link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,300;0,500;0,700;0,900;1,300&display=swap" rel="stylesheet">
+<title>Property Scout</title>
 <style>
-  :root{
-    --bg:#0d2228; --surface:rgba(255,255,255,.04); --line:rgba(255,255,255,.12);
-    --ink:#fff; --muted:rgba(255,255,255,.55); --dim:rgba(255,255,255,.35);
-    --cyan:#2AB4BE; --amber:#D9A441; --red:#c0564f;
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg:              #F2F2F7;
+    --card:            #FFFFFF;
+    --accent:          #0A84FF;
+    --danger:          #FF3B30;
+    --red:             #FF3B30;
+    --amber:           #FF9500;
+    --ink:             #1C1C1E;
+    --muted:           #8E8E93;
+    --sep:             #E5E5EA;
+    --input-bg:        #F2F2F7;
+    --chip-border:     #D1D1D6;
+    --chip-text:       #3A3A3C;
+    --score-high-bg:   #E8F8EE;
+    --score-high-fg:   #1B7A3D;
+    --score-mid-bg:    #FFF3CD;
+    --score-mid-fg:    #8A5C00;
+    --score-low-bg:    #F2F2F7;
+    --score-low-fg:    #8E8E93;
   }
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{background:var(--bg);color:var(--ink);font-family:'Barlow',sans-serif;
-       font-weight:300;min-height:100vh;position:relative;padding:56px 28px}
-  .bk{position:fixed;width:38px;height:38px;z-index:5;pointer-events:none}
-  .tl{top:22px;left:22px;border-top:1.5px solid var(--line);border-left:1.5px solid var(--line)}
-  .tr{top:22px;right:22px;border-top:1.5px solid var(--line);border-right:1.5px solid var(--line)}
-  .bl{bottom:22px;left:22px;border-bottom:1.5px solid var(--line);border-left:1.5px solid var(--line)}
-  .br{bottom:22px;right:22px;border-bottom:1.5px solid var(--line);border-right:1.5px solid var(--line)}
-  .wrap{max-width:880px;margin:0 auto}
-  .eyebrow{font-size:11px;letter-spacing:.38em;text-transform:uppercase;
-           color:var(--cyan);font-weight:500;margin-bottom:14px}
-  h1{font-weight:900;font-size:clamp(40px,7vw,64px);line-height:.92;
-     text-transform:uppercase;letter-spacing:-1.5px;margin-bottom:8px}
-  h1 span{color:var(--cyan)}
-  .sub{color:var(--muted);font-size:15px;max-width:520px;line-height:1.6;margin-bottom:40px}
 
-  /* ── Formulario ── */
-  .panel{background:var(--surface);border:1px solid var(--line);padding:22px;margin-bottom:14px}
-  textarea{width:100%;background:transparent;border:1px solid var(--line);color:var(--ink);
-           font-family:'Barlow';font-weight:300;font-size:16px;padding:14px;min-height:88px;
-           resize:vertical;line-height:1.5}
-  textarea:focus{outline:2px solid var(--cyan);outline-offset:-1px;border-color:transparent}
-  textarea::placeholder{color:var(--dim);font-style:italic}
-  .row{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
-  button{background:var(--cyan);color:#062024;border:0;font-family:'Barlow';font-weight:700;
-         font-size:13px;letter-spacing:.14em;text-transform:uppercase;padding:12px 22px;
-         cursor:pointer}
-  button:hover{filter:brightness(1.12)}
-  button:focus-visible{outline:2px solid #fff;outline-offset:2px}
-  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
-  button:disabled{opacity:.45;cursor:wait}
-  .hint{color:var(--dim);font-size:13px}
-
-  /* ── Selector de portales ── */
-  .ps-label{font-size:11px;letter-spacing:.38em;text-transform:uppercase;color:var(--muted);
-            font-weight:500;margin:18px 0 10px}
-  .ps-chips{display:flex;flex-wrap:wrap;gap:8px}
-  .ps-chip{border:1px solid var(--line);padding:5px 12px;font-size:11px;font-weight:500;
-           letter-spacing:.1em;text-transform:uppercase;color:var(--muted);cursor:pointer;
-           user-select:none;transition:border-color .15s,color .15s,background .15s}
-  .ps-chip:hover{border-color:rgba(42,180,190,.6);color:var(--ink)}
-  .ps-chip.on{border-color:var(--cyan);color:var(--cyan);background:rgba(42,180,190,.08)}
-  .ps-chip[data-nota]{cursor:help}
-
-  /* ── Paneles de búsqueda ── */
-  .search-panel{border:1px solid var(--line);border-top:2px solid var(--cyan);margin-top:28px}
-  .sp-header{padding:18px 22px 16px;border-bottom:1px solid var(--line);
-             display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
-  .sp-meta{min-width:0}
-  .sp-eyebrow{font-size:10px;letter-spacing:.38em;text-transform:uppercase;
-              color:var(--cyan);font-weight:500;margin-bottom:6px}
-  .sp-eyebrow.paused{color:var(--amber)}
-  .sp-title{font-weight:700;font-size:17px;margin-bottom:5px;
-            white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sp-criteria{font-size:12px;color:var(--muted);line-height:1.55}
-  .sp-actions{display:flex;gap:8px;flex-shrink:0;padding-top:2px}
-  .sp-actions button{font-size:11px;padding:7px 13px;white-space:nowrap}
-  .sp-results{padding:20px 22px 6px}
-  .sp-loading{color:var(--dim);font-size:14px;padding:20px 0;font-style:italic}
-
-  /* ── Cards de resultados ── */
-  .group{margin-top:24px}
-  .group:first-child{margin-top:0}
-  .gtitle{font-size:11px;letter-spacing:.38em;text-transform:uppercase;font-weight:500;
-          margin-bottom:14px;display:flex;align-items:center;gap:12px}
-  .gtitle::after{content:"";flex:1;height:1px;background:var(--line)}
-  .g-match .gtitle{color:var(--cyan)} .g-rev .gtitle{color:var(--amber)}
-
-  .card{background:var(--surface);border:1px solid var(--line);padding:20px 22px;
-        margin-bottom:12px;display:grid;grid-template-columns:1fr auto;gap:18px}
-  .portal{font-size:10px;letter-spacing:.28em;text-transform:uppercase;color:var(--dim);
-          font-weight:500;margin-bottom:6px}
-  .ct{font-weight:700;font-size:17px;line-height:1.25;margin-bottom:4px}
-  .cp{color:var(--cyan);font-weight:700;font-size:15px;margin-bottom:10px}
-  .cz{color:var(--dim);font-size:13px;font-weight:300;margin-left:8px}
-  ul.rz{list-style:none;font-size:13.5px;color:var(--muted);line-height:1.55}
-  ul.rz li::before{content:"— ";color:var(--dim)}
-  .faltan{margin-top:8px;font-size:12.5px;color:var(--amber);font-style:italic}
-  .alerta{margin-top:6px;font-size:12.5px;color:var(--red)}
-  a.ver{display:inline-block;margin-top:12px;color:var(--cyan);font-size:13px;
-        font-weight:500;letter-spacing:.06em;text-decoration:none;
-        border-bottom:1px solid var(--cyan);padding-bottom:2px}
-  .stamp{text-align:right;min-width:78px}
-  .stamp .n{font-weight:900;font-size:46px;line-height:1;letter-spacing:-2px}
-  .stamp .l{font-size:9px;letter-spacing:.3em;text-transform:uppercase;color:var(--dim);
-            border-top:1px solid var(--line);margin-top:6px;padding-top:5px}
-  .g-match .stamp .n{color:var(--cyan)} .g-rev .stamp .n{color:var(--amber)}
-
-  .empty{border:1px dashed var(--line);padding:44px 24px;text-align:center;
-         color:var(--dim);font-size:14.5px;line-height:1.6;font-style:italic}
-  .paneles-empty{padding:48px 0 12px;text-align:center;color:var(--dim);
-                 font-size:14px;font-style:italic;line-height:1.7}
-
-  .status{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
-          display:flex;justify-content:space-between;align-items:center;gap:14px;
-          flex-wrap:wrap;color:var(--dim);font-size:12.5px;letter-spacing:.04em}
-  .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);
-         background:#123239;border:1px solid var(--cyan);color:var(--ink);
-         padding:12px 20px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none}
-  .toast.show{opacity:1}
-
-  @media(max-width:560px){
-    .card{grid-template-columns:1fr}
-    .stamp{text-align:left;display:flex;align-items:baseline;gap:10px}
-    .stamp .l{border:0;margin:0;padding:0}
-    .sp-header{flex-direction:column}
-    .sp-actions{width:100%}
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    font-size: 15px;
+    line-height: 1.5;
+    min-height: 100vh;
+    padding: 20px 16px 48px;
   }
-  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  .page {
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  .app-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding: 4px 0;
+  }
+  .app-icon {
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .app-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+    letter-spacing: -0.2px;
+  }
+  .app-region {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  /* ── Card container ──────────────────────────────────────────────────── */
+  .card-panel {
+    background: var(--card);
+    border-radius: 14px;
+    padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    margin-bottom: 12px;
+  }
+
+  /* ── Form ────────────────────────────────────────────────────────────── */
+  .form-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  textarea#pedido {
+    width: 100%;
+    background: var(--input-bg);
+    border: none;
+    border-radius: 9px;
+    padding: 9px 11px;
+    font-family: inherit;
+    font-size: 14px;
+    color: var(--ink);
+    min-height: 80px;
+    resize: vertical;
+    line-height: 1.5;
+    outline: none;
+    transition: box-shadow 0.15s;
+  }
+  textarea#pedido::placeholder { color: var(--muted); }
+  textarea#pedido:focus { box-shadow: 0 0 0 2px var(--accent); }
+
+  /* ── Portal chips ────────────────────────────────────────────────────── */
+  .ps-label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 12px 0 8px;
+  }
+  .ps-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+  .ps-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    background: var(--card);
+    border: 0.5px solid var(--chip-border);
+    color: var(--chip-text);
+  }
+  .ps-chip.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .ps-chip:hover:not(.on) { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Primary button ──────────────────────────────────────────────────── */
+  .btn-primary {
+    display: block;
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 11px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-primary:hover { opacity: 0.88; }
+  .btn-primary:disabled { opacity: 0.45; cursor: wait; }
+
+  .crear-hint {
+    display: block;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+    min-height: 16px;
+  }
+
+  /* ── Search panels ───────────────────────────────────────────────────── */
+  .search-panel {
+    background: var(--card);
+    border-radius: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .sp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+  .sp-meta { min-width: 0; flex: 1; }
+  .sp-title-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 3px;
+  }
+  .sp-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 280px;
+  }
+  /* Paused indicator — shown only when .sp-eyebrow.paused */
+  .sp-eyebrow {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--amber);
+    flex-shrink: 0;
+  }
+  .sp-eyebrow.paused { display: inline-flex; }
+  .sp-eyebrow::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--amber);
+    flex-shrink: 0;
+  }
+  .sp-criteria {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sp-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    padding-top: 1px;
+  }
+
+  /* ── Pill buttons ────────────────────────────────────────────────────── */
+  .btn-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 11px;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    border: none;
+    background: var(--input-bg);
+    color: var(--chip-text);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+  }
+  .btn-pill:hover { opacity: 0.75; }
+  .btn-pill-close { color: var(--danger); }
+
+  .sp-divider {
+    height: 0.5px;
+    background: var(--sep);
+    margin: 0 16px;
+  }
+  .sp-results {
+    padding: 10px 16px 14px;
+  }
+  .sp-loading {
+    font-size: 13px;
+    color: var(--muted);
+    padding: 16px 0;
+    font-style: italic;
+    text-align: center;
+  }
+
+  /* ── Property cards ──────────────────────────────────────────────────── */
+  .prop-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 0.5px solid var(--sep);
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+  }
+  .prop-card:last-child { border-bottom: none; padding-bottom: 0; }
+  .prop-card:first-child { padding-top: 4px; }
+
+  .prop-thumb {
+    width: 64px;
+    height: 48px;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--chip-border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .prop-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  /* Photo placeholder icon */
+  .prop-thumb.no-img::after {
+    content: "";
+    display: block;
+    width: 22px;
+    height: 22px;
+    opacity: 0.55;
+    background-color: var(--muted);
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z'/%3E%3C/svg%3E");
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+  }
+
+  .prop-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .prop-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 2px;
+  }
+  .prop-meta {
+    font-size: 12px;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .prop-meta.no-price { font-style: italic; }
+
+  .score-badge {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .score-high { background: var(--score-high-bg); color: var(--score-high-fg); }
+  .score-mid  { background: var(--score-mid-bg);  color: var(--score-mid-fg);  }
+  .score-low  { background: var(--score-low-bg);  color: var(--score-low-fg);  }
+
+  .empty-results {
+    font-size: 13px;
+    color: var(--muted);
+    font-style: italic;
+    padding: 16px 0 4px;
+    text-align: center;
+    line-height: 1.6;
+  }
+
+  .paneles-empty {
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+    font-style: italic;
+    line-height: 1.7;
+    padding: 32px 0 8px;
+  }
+
+  /* ── Status bar ──────────────────────────────────────────────────────── */
+  .status-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 0.5px solid var(--sep);
+  }
+  #statusTxt {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .btn-ghost {
+    background: none;
+    border: 0.5px solid var(--chip-border);
+    border-radius: 7px;
+    padding: 5px 11px;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn-ghost:hover { opacity: 0.7; }
+
+  /* ── Toast ───────────────────────────────────────────────────────────── */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1C1C1E;
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.25s;
+    pointer-events: none;
+    white-space: nowrap;
+    max-width: calc(100vw - 32px);
+    text-align: center;
+    z-index: 999;
+  }
+  .toast.show { opacity: 1; }
+
+  /* ── Responsive ──────────────────────────────────────────────────────── */
+  @media (max-width: 480px) {
+    body { padding: 12px 12px 36px; }
+    .prop-thumb { width: 72px; height: 54px; }
+    .sp-header { flex-direction: column; gap: 8px; }
+    .sp-actions { align-self: flex-end; }
+    .sp-title { max-width: 100%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
 <body>
-<div class="bk tl"></div><div class="bk tr"></div><div class="bk bl"></div><div class="bk br"></div>
 
-<div class="wrap">
-  <div class="eyebrow">Vazquez Roselli · Agente de búsqueda</div>
-  <h1>Property<br><span>Scout.</span></h1>
-  <p class="sub">Escribí el pedido tal cual te lo pasó el cliente. El agente rastrea el
-  círculo de portales de La Plata cada hora y evalúa cada publicación contra el pedido.</p>
+<div class="page">
 
-  <div class="panel">
-    <textarea id="pedido" placeholder="Ej: Busco casa apto Banco Nación, zona norte o Tolosa, hasta 150.000 USD, 2 dormitorios y parque."></textarea>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="app-icon">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 2.2L2.5 8.5V17h5v-4.5h5V17h5V8.5L10 2.2z" fill="white"/>
+        <circle cx="13.5" cy="14.5" r="2.2" stroke="white" stroke-width="1.4"/>
+        <line x1="15.1" y1="16.1" x2="17" y2="18" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <span class="app-title">Property Scout</span>
+    <span class="app-region">Gran La Plata</span>
+  </header>
+
+  <!-- Formulario nueva búsqueda -->
+  <div class="card-panel">
+    <div class="form-label">Nueva búsqueda</div>
+    <textarea id="pedido" placeholder="Ej: Casa apto banco, zona norte o Tolosa, hasta USD 150.000, 2 dormitorios y parque."></textarea>
     <div class="ps-label">Portales</div>
     <div class="ps-chips" id="psChips">
-      <span class="ps-chip on" data-id="__todos__">Todos los portales</span>
+      <span class="ps-chip on" data-id="__todos__">Todos</span>
     </div>
-    <div class="row">
-      <button id="crear">Crear búsqueda</button>
-      <span class="hint" id="crearHint"></span>
-    </div>
+    <button class="btn-primary" id="crear">Buscar</button>
+    <span class="crear-hint" id="crearHint"></span>
   </div>
 
+  <!-- Paneles de búsqueda -->
   <div id="paneles"></div>
 
-  <div class="status">
+  <!-- Barra de estado -->
+  <div class="status-bar">
     <span id="statusTxt">Cargando estado…</span>
-    <button class="ghost" id="forzar">Forzar scan ahora</button>
+    <button class="btn-ghost" id="forzar">Forzar scan</button>
   </div>
+
 </div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -189,7 +512,7 @@ function pintarSelectorPortales() {
   const c = $('psChips');
   if (!c) return;
   const todos = portalesSeleccionados === null;
-  let html = `<span class="ps-chip${todos ? ' on' : ''}" data-id="__todos__">Todos los portales</span>`;
+  let html = `<span class="ps-chip${todos ? ' on' : ''}" data-id="__todos__">Todos</span>`;
   for (const p of portalesDisponibles) {
     const on = !todos && portalesSeleccionados.has(p.id);
     const notaAttr = p.nota ? ` data-nota="1" title="${p.nota}"` : '';
@@ -238,46 +561,66 @@ function criteriaSummary(search) {
   }
   if (p.dormitorios_min) parts.push(`${p.dormitorios_min}+ dorm.`);
   const portales = search.portales;
-  if (portales?.length) parts.push(`[${portales.join(', ')}]`);
+  if (portales?.length) {
+    parts.push(portales.join(', '));
+  } else {
+    parts.push('Todos los portales');
+  }
   return parts.join(' · ') || search.pedido_raw?.slice(0, 80);
 }
 
 // ── Card de propiedad ─────────────────────────────────────────────────────────
 function card(m) {
-  const precio = m.precio
-    ? `${(m.moneda || '').toUpperCase()} ${Number(m.precio).toLocaleString('es-AR')}`
-    : 'Precio a consultar';
-  const razones = (m.razones || []).map(r => `<li>${r}</li>`).join('');
-  const faltan = (m.faltantes || []).length
-    ? `<div class="faltan">A confirmar: ${m.faltantes.join(' · ')}</div>` : '';
-  const alertas = (m.alertas || []).length
-    ? `<div class="alerta">⚠ ${m.alertas.join(' · ')}</div>` : '';
-  return `<div class="card">
-    <div>
-      <div class="portal">${m.portal}</div>
-      <div class="ct">${m.titulo || '(sin título)'} <span class="cz">${m.zona_texto || ''}</span></div>
-      <div class="cp">${precio}</div>
-      <ul class="rz">${razones}</ul>
-      ${faltan}${alertas}
-      <a class="ver" href="${m.url}" target="_blank" rel="noopener">Ver publicación →</a>
+  const imgUrl = m.imagen || m.foto || m.image_url || '';
+  const thumbContent = imgUrl
+    ? `<img src="${imgUrl}" alt="" loading="lazy" onerror="this.parentElement.classList.add('no-img')">`
+    : '';
+  const thumbClass = imgUrl ? 'prop-thumb' : 'prop-thumb no-img';
+
+  let precioTxt;
+  let noPrice = false;
+  if (!m.precio) {
+    precioTxt = 'Precio a consultar';
+    noPrice = true;
+  } else if ((m.moneda || '').toUpperCase() === 'ARS') {
+    const arsStr = Number(m.precio).toLocaleString('es-AR');
+    const usdApprox = m.precio_usd
+      ? ` ≈ USD\u00a0${Number(m.precio_usd).toLocaleString('es-AR')}`
+      : '';
+    precioTxt = `ARS\u00a0${arsStr}${usdApprox}`;
+  } else {
+    precioTxt = `${(m.moneda || 'USD').toUpperCase()}\u00a0${Number(m.precio).toLocaleString('es-AR')}`;
+  }
+
+  const metaLine = noPrice
+    ? precioTxt
+    : `${precioTxt}${m.portal ? ' · ' + m.portal : ''}`;
+
+  const scoreLevel = m.veredicto === 'match' ? 'high'
+                   : m.veredicto === 'revisar' ? 'mid'
+                   : 'low';
+  const scoreBadge = noPrice
+    ? ''
+    : `<div class="score-badge score-${scoreLevel}">${m.score}</div>`;
+
+  return `<a class="prop-card" href="${m.url}" target="_blank" rel="noopener">
+    <div class="${thumbClass}">${thumbContent}</div>
+    <div class="prop-body">
+      <div class="prop-title">${m.titulo || '(sin título)'}</div>
+      <div class="prop-meta${noPrice ? ' no-price' : ''}">${metaLine}</div>
     </div>
-    <div class="stamp"><div class="n">${m.score}</div><div class="l">score</div></div>
-  </div>`;
+    ${scoreBadge}
+  </a>`;
 }
 
 function renderResults(matches) {
   const exactos = matches.filter(m => m.veredicto === 'match');
   const revisar = matches.filter(m => m.veredicto === 'revisar' && m.score > 0);
-  let html = `<div class="group g-match"><div class="gtitle">Match exacto · ${exactos.length}</div>`;
-  html += exactos.length
-    ? exactos.map(m => card(m)).join('')
-    : `<div class="empty">Sin matches exactos por ahora. El agente sigue rastreando cada hora.</div>`;
-  html += `</div>`;
-  if (revisar.length) {
-    html += `<div class="group g-rev"><div class="gtitle">Para revisar · ${revisar.length}</div>`;
-    html += revisar.map(m => card(m)).join('') + `</div>`;
+  const all = [...exactos, ...revisar];
+  if (!all.length) {
+    return `<div class="empty-results">Sin matches por ahora.<br>El agente sigue rastreando cada hora.</div>`;
   }
-  return html;
+  return all.map(m => card(m)).join('');
 }
 
 // ── Paneles de búsqueda ───────────────────────────────────────────────────────
@@ -287,7 +630,7 @@ function actualizarEstadoPanel(search) {
   if (!eyebrow || !btnPause) return;
   const paused = !search.active;
   eyebrow.className = 'sp-eyebrow' + (paused ? ' paused' : '');
-  eyebrow.textContent = paused ? 'Búsqueda pausada' : 'Búsqueda activa';
+  eyebrow.textContent = paused ? 'Pausada' : 'Activa';
   btnPause.textContent = paused ? '▶ Reactivar' : '⏸ Pausar';
 }
 
@@ -302,22 +645,25 @@ function abrirPanel(search, scrollTo = false) {
   el.innerHTML = `
     <div class="sp-header">
       <div class="sp-meta">
-        <div class="sp-eyebrow${paused ? ' paused' : ''}">${paused ? 'Búsqueda pausada' : 'Búsqueda activa'}</div>
-        <div class="sp-title">${search.parsed?.titulo || search.pedido_raw?.slice(0, 60)}</div>
+        <div class="sp-title-row">
+          <div class="sp-title">${search.parsed?.titulo || search.pedido_raw?.slice(0, 60)}</div>
+          <div class="sp-eyebrow${paused ? ' paused' : ''}">${paused ? 'Pausada' : 'Activa'}</div>
+        </div>
         <div class="sp-criteria">${criteriaSummary(search)}</div>
       </div>
       <div class="sp-actions">
-        <button class="ghost" id="pause-${search.id}">${paused ? '▶ Reactivar' : '⏸ Pausar'}</button>
-        <button class="ghost" id="close-${search.id}">✕ Cerrar</button>
+        <button class="btn-pill" id="pause-${search.id}">${paused ? '▶ Reactivar' : '⏸ Pausar'}</button>
+        <button class="btn-pill btn-pill-close" id="close-${search.id}">Cerrar</button>
       </div>
     </div>
+    <div class="sp-divider"></div>
     <div class="sp-results" id="matches-${search.id}">
       <div class="sp-loading">Cargando resultados…</div>
     </div>`;
 
   $('paneles').appendChild(el);
-  $(`pause-${search.id}`).onclick  = () => pausarSearch(search.id);
-  $(`close-${search.id}`).onclick  = () => cerrarPanel(search.id);
+  $(`pause-${search.id}`).onclick = () => pausarSearch(search.id);
+  $(`close-${search.id}`).onclick = () => cerrarPanel(search.id);
   actualizarEstadoVacioPaneles();
 
   if (scrollTo) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
