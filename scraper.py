@@ -24,10 +24,27 @@ import time
 import requests
 from bs4 import BeautifulSoup
 
+import fx
+import zonas
+
 log = logging.getLogger(__name__)
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+# Registro central de portales — fuente única de verdad para el frontend.
+# "nota" aparece como tooltip en el selector; None = sin nota.
+PORTAL_INFO: list[dict] = [
+    {"id": "zonaprop",     "nombre": "Zonaprop",     "nota": "Requiere IP residencial para resultados completos"},
+    {"id": "argenprop",    "nombre": "Argenprop",     "nota": None},
+    {"id": "remax",        "nombre": "RE/MAX",        "nota": None},
+    {"id": "century21",    "nombre": "Century 21",    "nota": None},
+    {"id": "mercadolibre", "nombre": "MercadoLibre",  "nota": None},
+    {"id": "comunidad",    "nombre": "Comunidad",     "nota": None},
+    {"id": "eldia",        "nombre": "El Día",        "nota": None},
+    {"id": "inmobusqueda", "nombre": "InmoBúsqueda",  "nota": "Datos de ingesta local si se configuró zonaprop_local"},
+]
+PORTALES: list[str] = [p["id"] for p in PORTAL_INFO]
 
 MAX_ENRICH_PER_PORTAL = 20
 MAX_CARDS_PER_PORTAL = 60
@@ -56,10 +73,20 @@ def make_id(url: str, portal: str) -> str:
 
 
 def parse_precio(texto: str):
-    """'USD 85.000' / 'U$S' / 'US$155.000' / '$ 120.000.000' → (monto, moneda)."""
+    """'USD 85.000' / 'U$S' / 'US$155.000' / '$ 120.000.000' → (monto, moneda).
+
+    Casos borde:
+    - Texto vacío / None           → (None, None)
+    - "Consultar" / "Consultar precio" → (None, None)  [sin precio publicado]
+    - Precio = 0 tras parseo       → (None, moneda)    [tratado como sin precio]
+    - Sin dígitos                  → (None, moneda)
+    """
     if not texto:
         return None, None
-    t = texto.upper().replace("\xa0", " ")
+    t = texto.upper().replace("\xa0", " ").strip()
+    # "Consultar" y variantes nunca tienen precio real
+    if re.match(r"^CONSULTAR", t) or t in ("CONSULTAR PRECIO", "PRECIO A CONSULTAR", "A CONSULTAR"):
+        return None, None
     moneda = None
     if any(k in t for k in ("USD", "U$S", "U$D", "US$", "DÓLAR", "DOLAR")):
         moneda = "usd"
@@ -70,21 +97,28 @@ def parse_precio(texto: str):
         return None, moneda
     monto = nums[0].replace(".", "").replace(",", "")
     try:
-        return int(monto), moneda
+        valor = int(monto)
+        # 0 no es un precio válido para un inmueble
+        return (valor if valor > 0 else None), moneda
     except ValueError:
         return None, moneda
 
 
 def _prop(portal, url, titulo="", precio_txt="", zona_texto=""):
     precio, moneda = parse_precio(precio_txt)
+    if precio is not None and moneda is not None:
+        fx.warn_if_absurd(precio, moneda, url)
+    titulo_clean = (titulo or "").strip()[:200]
+    zona_clean = (zona_texto or "").strip()[:200]
     return {
         "id": make_id(url, portal),
         "portal": portal,
         "url": url,
-        "titulo": (titulo or "").strip()[:200],
+        "titulo": titulo_clean,
         "precio": precio,
         "moneda": moneda,
-        "zona_texto": (zona_texto or "").strip()[:200],
+        "zona_texto": zona_clean,
+        "zona_canonica": zonas.normalizar(zona_clean, titulo_clean),
         "descripcion": "",
         "fecha_detectada": time.strftime("%Y-%m-%d %H:%M"),
     }
@@ -311,14 +345,21 @@ def scrape_mercadolibre(search) -> list:
                     url = item.get("permalink", "")
                     if not url:
                         continue
+                    precio_raw = int(item.get("price") or 0) or None
+                    moneda_ml = "usd" if item.get("currency_id") == "USD" else "ars"
+                    if precio_raw is not None:
+                        fx.warn_if_absurd(precio_raw, moneda_ml, url)
+                    titulo_ml = item.get("title", "")[:200]
+                    zona_ml = (item.get("location", {}) or {}).get("address_line", "")[:200]
                     props.append({
                         "id": make_id(url, "mercadolibre"),
                         "portal": "mercadolibre",
                         "url": url,
-                        "titulo": item.get("title", "")[:200],
-                        "precio": int(item.get("price") or 0) or None,
-                        "moneda": "usd" if item.get("currency_id") == "USD" else "ars",
-                        "zona_texto": (item.get("location", {}) or {}).get("address_line", "")[:200],
+                        "titulo": titulo_ml,
+                        "precio": precio_raw,
+                        "moneda": moneda_ml,
+                        "zona_texto": zona_ml,
+                        "zona_canonica": zonas.normalizar(zona_ml, titulo_ml),
                         "descripcion": "",
                         "fecha_detectada": time.strftime("%Y-%m-%d %H:%M"),
                     })
@@ -579,16 +620,26 @@ def enrich_requests(props: list):
 
 # ─── Orquestador ──────────────────────────────────────────────────────────────
 
-async def _scan_async(search: dict, known_ids: set) -> list:
+# Dicts nombre→función para filtrar fácilmente por portal seleccionado.
+# Se definen aquí (después de las funciones) para que las referencias existan.
+_SCRAPERS_STATIC: dict = {}   # poblado al final del módulo
+_SCRAPERS_PLAYWRIGHT: dict = {}
+
+
+async def _scan_async(search: dict, known_ids: set,
+                      portales: set | None = None) -> list:
+    """portales=None → todos los portales; portales=set → solo esos."""
     from playwright.async_api import async_playwright
 
     todas = []
 
     # 1) Portales sin browser primero: rápidos y dan señal inmediata
-    for fn in (scrape_mercadolibre, scrape_comunidad, scrape_eldia, scrape_inmobusqueda):
+    for nombre, fn in _SCRAPERS_STATIC.items():
+        if portales is not None and nombre not in portales:
+            continue
         try:
             encontradas = fn(search)
-            log.info("%s → %s publicaciones", fn.__name__, len(encontradas))
+            log.info("%s → %s publicaciones", nombre, len(encontradas))
             # El Día ya trae el texto completo del aviso; el resto se enriquece
             nuevas = [p for p in encontradas
                       if p["id"] not in known_ids and p["portal"] != "eldia"]
@@ -598,9 +649,16 @@ async def _scan_async(search: dict, known_ids: set) -> list:
                 log.warning("enrich estático: %s", e)
             todas += encontradas
         except Exception as e:
-            log.error("%s falló: %s", fn.__name__, e)
+            log.error("%s falló: %s", nombre, e)
 
-    # 2) Portales con browser
+    # 2) Portales con browser (solo si al menos uno fue seleccionado)
+    playwright_activos = {
+        nombre: fn for nombre, fn in _SCRAPERS_PLAYWRIGHT.items()
+        if portales is None or nombre in portales
+    }
+    if not playwright_activos:
+        return _dedup(todas)
+
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
             headless=True,
@@ -614,16 +672,16 @@ async def _scan_async(search: dict, known_ids: set) -> list:
         )
         await context.add_init_script(STEALTH_JS)
         try:
-            for fn in (scrape_argenprop, scrape_remax, scrape_century21, scrape_zonaprop):
+            for nombre, fn in playwright_activos.items():
                 try:
                     encontradas = await fn(context, search)
-                    log.info("%s → %s publicaciones", fn.__name__, len(encontradas))
+                    log.info("%s → %s publicaciones", nombre, len(encontradas))
                     todas += encontradas
                 except Exception as e:
-                    log.error("%s falló: %s", fn.__name__, e)
+                    log.error("%s falló: %s", nombre, e)
 
             nuevas_pw = [p for p in todas if p["id"] not in known_ids
-                         and p["portal"] in ("argenprop", "remax", "century21", "zonaprop")]
+                         and p["portal"] in playwright_activos]
             if nuevas_pw:
                 log.info("Enriqueciendo %s publicaciones nuevas (browser)…",
                          min(len(nuevas_pw), MAX_ENRICH_PER_PORTAL))
@@ -639,4 +697,21 @@ async def _scan_async(search: dict, known_ids: set) -> list:
 
 
 def run_scan_for_search(search: dict, known_ids: set = None) -> list:
-    return asyncio.run(_scan_async(search, known_ids or set()))
+    portales = search.get("portales")
+    portales_set = set(portales) if portales else None
+    return asyncio.run(_scan_async(search, known_ids or set(), portales_set))
+
+
+# Poblar los dicts de scrapers (después de que las funciones estén definidas)
+_SCRAPERS_STATIC.update({
+    "mercadolibre": scrape_mercadolibre,
+    "comunidad":    scrape_comunidad,
+    "eldia":        scrape_eldia,
+    "inmobusqueda": scrape_inmobusqueda,
+})
+_SCRAPERS_PLAYWRIGHT.update({
+    "argenprop": scrape_argenprop,
+    "remax":     scrape_remax,
+    "century21": scrape_century21,
+    "zonaprop":  scrape_zonaprop,
+})

@@ -157,13 +157,14 @@ async def check_blocked(page, url: str) -> bool:
                    "just a moment", "challenge")
         if any(m in title for m in markers) or body_len < 800:
             log.warning("⛔ BLOQUEADO — title='%s' body=%s chars", title[:80], body_len)
-            log.info("   El browser quedará abierto 40s — si hay CAPTCHA resolvelo a mano.")
-            await page.wait_for_timeout(40000)
-            # Verificar si se resolvió
-            body_len2 = await page.evaluate("() => document.body.innerText.length")
-            if body_len2 > 800:
-                log.info("   Bloqueo superado manualmente, continuando.")
-                return False
+            if os.environ.get("HEADLESS", "").lower() not in ("1", "true", "yes"):
+                log.info("   El browser quedará abierto 40s — si hay CAPTCHA resolvelo a mano.")
+                await page.wait_for_timeout(40000)
+                # Verificar si se resolvió
+                body_len2 = await page.evaluate("() => document.body.innerText.length")
+                if body_len2 > 800:
+                    log.info("   Bloqueo superado manualmente, continuando.")
+                    return False
             return True
     except Exception:
         pass
@@ -271,15 +272,24 @@ async def run():
     all_props: list[dict] = []
 
     async with async_playwright() as pw:
+        headless_mode = os.environ.get("HEADLESS", "").lower() in ("1", "true", "yes")
+        launch_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-infobars",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--start-maximized",
+        ]
+        if headless_mode:
+            launch_args += [
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+            ]
         browser = await pw.chromium.launch(
-            headless=False,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-infobars",
-                "--no-first-run",
-                "--no-default-browser-check",
-                "--start-maximized",
-            ],
+            headless=headless_mode,
+            args=launch_args,
         )
         context = await browser.new_context(
             user_agent=UA,

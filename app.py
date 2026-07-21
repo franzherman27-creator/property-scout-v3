@@ -205,11 +205,27 @@ def index():
     return send_from_directory("static", "index.html")
 
 
+@app.route("/api/portals")
+def list_portals():
+    """Lista de portales disponibles con metadata para el selector del frontend."""
+    return jsonify({"portals": scraper.PORTAL_INFO})
+
+
 @app.route("/api/search", methods=["POST"])
 def create_search():
-    pedido = (request.get_json(silent=True) or {}).get("pedido", "").strip()
+    body = request.get_json(silent=True) or {}
+    pedido = body.get("pedido", "").strip()
     if not pedido:
         return jsonify({"error": "Falta el campo 'pedido'"}), 400
+
+    # Portales opcionales: None = todos; lista validada contra PORTALES conocidos
+    portales_raw = body.get("portales")
+    portales = None
+    if portales_raw is not None:
+        portales = [p for p in (portales_raw or []) if p in scraper.PORTALES]
+        if not portales:          # lista vacía o inválida → todos
+            portales = None
+
     try:
         parsed = ai_matcher.parse_pedido(pedido)
     except RuntimeError as e:
@@ -227,6 +243,7 @@ def create_search():
         "id": uuid.uuid4().hex[:8],
         "pedido_raw": pedido,
         "parsed": parsed,
+        "portales": portales,     # None = todos los portales
         "active": True,
         "created": datetime.now().isoformat(timespec="minutes"),
     }
@@ -274,19 +291,25 @@ def matches():
     sid = request.args.get("search_id")
     min_score = int(request.args.get("min_score", 0))
     db = load_props()
-    vivas = {s["id"] for s in load_searches()["searches"]}
+    searches_map = {s["id"]: s for s in load_searches()["searches"]}
     out = []
     for p in db["properties"].values():
         for s_id, score in p.get("scores", {}).items():
-            if s_id not in vivas:
+            if s_id not in searches_map:
                 continue
             if sid and s_id != sid:
                 continue
-            if score.get("score", 0) >= min_score:
-                out.append({**{k: p.get(k) for k in
-                               ("id", "portal", "url", "titulo", "precio",
-                                "moneda", "zona_texto", "fecha_detectada")},
-                            "search_id": s_id, **score})
+            if score.get("score", 0) < min_score:
+                continue
+            # Filtro por portal: respetar la restricción de la búsqueda
+            # tanto para datos nuevos como para los ya ingestados.
+            portales = searches_map[s_id].get("portales")
+            if portales and p.get("portal") not in portales:
+                continue
+            out.append({**{k: p.get(k) for k in
+                           ("id", "portal", "url", "titulo", "precio",
+                            "moneda", "zona_texto", "fecha_detectada")},
+                        "search_id": s_id, **score})
     out.sort(key=lambda x: x.get("score", 0), reverse=True)
     return jsonify({"matches": out, "last_scan": db.get("last_scan")})
 
@@ -370,8 +393,14 @@ def ingest_properties():
 
     def _score_nuevas():
         for search in searches:
-            candidatas = [p for p in nuevas if ai_matcher.prefilter(search, p)]
-            descartadas_pre = [p for p in nuevas
+            # Respetar restricción de portales: no gastar tokens en portales
+            # que la búsqueda no incluye (el filtro de matches también lo haría,
+            # pero es más eficiente no evaluar desde el principio).
+            portales = search.get("portales")
+            nuevas_para_search = [p for p in nuevas
+                                  if not portales or p.get("portal") in portales]
+            candidatas = [p for p in nuevas_para_search if ai_matcher.prefilter(search, p)]
+            descartadas_pre = [p for p in nuevas_para_search
                                if p["id"] not in {c["id"] for c in candidatas}]
 
             with _lock:

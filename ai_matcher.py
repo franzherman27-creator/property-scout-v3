@@ -18,6 +18,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
+import fx
+import zonas
+
 log = logging.getLogger(__name__)
 
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -148,16 +151,54 @@ def parse_pedido(pedido_raw: str) -> dict:
 # ─── 2) Pre-filtro barato (sin IA) ────────────────────────────────────────────
 
 def prefilter(search: dict, prop: dict) -> bool:
-    """Descarta lo obviamente fuera de rango antes de gastar tokens.
-    Ante la duda (datos faltantes), deja pasar: la IA decide."""
-    parsed = search.get("parsed", {})
-    precio_max = parsed.get("precio_max")
-    moneda = parsed.get("moneda")
+    """Descarta lo obviamente fuera de rango antes de gastar tokens de IA.
 
-    p_precio, p_moneda = prop.get("precio"), prop.get("moneda")
-    if precio_max and p_precio and p_moneda == moneda:
-        if p_precio > precio_max * 1.08:  # 8% de tolerancia: a veces se negocia
-            return False
+    Chequeos (en orden):
+      1. Zona: si la zona canónica de la propiedad es conocida y no está
+         en la lista de zonas de la búsqueda → descarta.
+      2. Precio: si el precio supera el máximo (con 8 % de tolerancia),
+         convirtiendo monedas si es necesario → descarta.
+
+    Conservador en ambos casos: ante dato faltante o ambiguo, deja pasar.
+    """
+    parsed = search.get("parsed", {})
+
+    # ── 1. Pre-filtro de zona ─────────────────────────────────────────────────
+    zonas_busqueda = parsed.get("zonas", [])
+    zona_prop = prop.get("zona_canonica")
+    if not zonas.en_busqueda(zona_prop, zonas_busqueda):
+        log.debug(
+            "prefilter zona: descartando '%s' (zona=%s, buscadas=%s)",
+            prop.get("url", "")[:60], zona_prop, zonas_busqueda,
+        )
+        return False
+
+    # ── 2. Pre-filtro de precio ───────────────────────────────────────────────
+    precio_max = parsed.get("precio_max")
+    moneda_busqueda = parsed.get("moneda")
+
+    # Tratar precio=0 igual que precio=None (no es un precio válido)
+    p_precio = prop.get("precio") or None
+    p_moneda = prop.get("moneda")
+
+    if not (precio_max and p_precio and p_moneda):
+        return True  # datos insuficientes → deja pasar
+
+    # Convertir a la moneda de la búsqueda si difieren
+    if p_moneda == moneda_busqueda:
+        precio_comparable = float(p_precio)
+    else:
+        precio_comparable = fx.convert(p_precio, p_moneda, moneda_busqueda)
+        if precio_comparable is None:
+            # Sin tasa disponible: no podemos comparar → no descartamos
+            log.debug(
+                "prefilter: sin tasa ARS/USD para convertir %s %s → %s; propiedad pasa",
+                p_moneda, p_precio, moneda_busqueda,
+            )
+            return True
+
+    if precio_comparable > precio_max * 1.08:  # 8 % de tolerancia: a veces se negocia
+        return False
     return True
 
 

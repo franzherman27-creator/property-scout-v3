@@ -27,13 +27,14 @@
   h1 span{color:var(--cyan)}
   .sub{color:var(--muted);font-size:15px;max-width:520px;line-height:1.6;margin-bottom:40px}
 
+  /* ── Formulario ── */
   .panel{background:var(--surface);border:1px solid var(--line);padding:22px;margin-bottom:14px}
   textarea{width:100%;background:transparent;border:1px solid var(--line);color:var(--ink);
            font-family:'Barlow';font-weight:300;font-size:16px;padding:14px;min-height:88px;
            resize:vertical;line-height:1.5}
   textarea:focus{outline:2px solid var(--cyan);outline-offset:-1px;border-color:transparent}
   textarea::placeholder{color:var(--dim);font-style:italic}
-  .row{display:flex;gap:12px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .row{display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap}
   button{background:var(--cyan);color:#062024;border:0;font-family:'Barlow';font-weight:700;
          font-size:13px;letter-spacing:.14em;text-transform:uppercase;padding:12px 22px;
          cursor:pointer}
@@ -43,16 +44,36 @@
   button:disabled{opacity:.45;cursor:wait}
   .hint{color:var(--dim);font-size:13px}
 
-  .chips{display:flex;flex-wrap:wrap;gap:10px;margin:26px 0 6px}
-  .chip{border:1px solid var(--line);padding:9px 14px;font-size:13px;color:var(--muted);
-        cursor:pointer;display:flex;gap:10px;align-items:center}
-  .chip.on{border-color:var(--cyan);color:var(--ink)}
-  .chip .x{color:var(--dim);cursor:pointer;font-weight:500}
-  .chip .x:hover{color:var(--red)}
-  .chip .pause{color:var(--dim);cursor:pointer}
-  .chip.paused{opacity:.45}
+  /* ── Selector de portales ── */
+  .ps-label{font-size:11px;letter-spacing:.38em;text-transform:uppercase;color:var(--muted);
+            font-weight:500;margin:18px 0 10px}
+  .ps-chips{display:flex;flex-wrap:wrap;gap:8px}
+  .ps-chip{border:1px solid var(--line);padding:5px 12px;font-size:11px;font-weight:500;
+           letter-spacing:.1em;text-transform:uppercase;color:var(--muted);cursor:pointer;
+           user-select:none;transition:border-color .15s,color .15s,background .15s}
+  .ps-chip:hover{border-color:rgba(42,180,190,.6);color:var(--ink)}
+  .ps-chip.on{border-color:var(--cyan);color:var(--cyan);background:rgba(42,180,190,.08)}
+  .ps-chip[data-nota]{cursor:help}
 
-  .group{margin-top:36px}
+  /* ── Paneles de búsqueda ── */
+  .search-panel{border:1px solid var(--line);border-top:2px solid var(--cyan);margin-top:28px}
+  .sp-header{padding:18px 22px 16px;border-bottom:1px solid var(--line);
+             display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+  .sp-meta{min-width:0}
+  .sp-eyebrow{font-size:10px;letter-spacing:.38em;text-transform:uppercase;
+              color:var(--cyan);font-weight:500;margin-bottom:6px}
+  .sp-eyebrow.paused{color:var(--amber)}
+  .sp-title{font-weight:700;font-size:17px;margin-bottom:5px;
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .sp-criteria{font-size:12px;color:var(--muted);line-height:1.55}
+  .sp-actions{display:flex;gap:8px;flex-shrink:0;padding-top:2px}
+  .sp-actions button{font-size:11px;padding:7px 13px;white-space:nowrap}
+  .sp-results{padding:20px 22px 6px}
+  .sp-loading{color:var(--dim);font-size:14px;padding:20px 0;font-style:italic}
+
+  /* ── Cards de resultados ── */
+  .group{margin-top:24px}
+  .group:first-child{margin-top:0}
   .gtitle{font-size:11px;letter-spacing:.38em;text-transform:uppercase;font-weight:500;
           margin-bottom:14px;display:flex;align-items:center;gap:12px}
   .gtitle::after{content:"";flex:1;height:1px;background:var(--line)}
@@ -80,6 +101,9 @@
 
   .empty{border:1px dashed var(--line);padding:44px 24px;text-align:center;
          color:var(--dim);font-size:14.5px;line-height:1.6;font-style:italic}
+  .paneles-empty{padding:48px 0 12px;text-align:center;color:var(--dim);
+                 font-size:14px;font-style:italic;line-height:1.7}
+
   .status{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
           display:flex;justify-content:space-between;align-items:center;gap:14px;
           flex-wrap:wrap;color:var(--dim);font-size:12.5px;letter-spacing:.04em}
@@ -87,8 +111,15 @@
          background:#123239;border:1px solid var(--cyan);color:var(--ink);
          padding:12px 20px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none}
   .toast.show{opacity:1}
-  @media (max-width:560px){.card{grid-template-columns:1fr}.stamp{text-align:left;display:flex;align-items:baseline;gap:10px}.stamp .l{border:0;margin:0;padding:0}}
-  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+  @media(max-width:560px){
+    .card{grid-template-columns:1fr}
+    .stamp{text-align:left;display:flex;align-items:baseline;gap:10px}
+    .stamp .l{border:0;margin:0;padding:0}
+    .sp-header{flex-direction:column}
+    .sp-actions{width:100%}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
@@ -102,14 +133,17 @@
 
   <div class="panel">
     <textarea id="pedido" placeholder="Ej: Busco casa apto Banco Nación, zona norte o Tolosa, hasta 150.000 USD, 2 dormitorios y parque."></textarea>
+    <div class="ps-label">Portales</div>
+    <div class="ps-chips" id="psChips">
+      <span class="ps-chip on" data-id="__todos__">Todos los portales</span>
+    </div>
     <div class="row">
       <button id="crear">Crear búsqueda</button>
       <span class="hint" id="crearHint"></span>
     </div>
   </div>
 
-  <div class="chips" id="chips"></div>
-  <div id="resultados"></div>
+  <div id="paneles"></div>
 
   <div class="status">
     <span id="statusTxt">Cargando estado…</span>
@@ -120,47 +154,108 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let searches = [], filtro = null;
 
-function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 3200); }
+// ── Estado ────────────────────────────────────────────────────────────────────
+let portalesDisponibles = [];       // [{id, nombre, nota}]
+let portalesSeleccionados = null;   // null = todos; Set<string> = específicos
+let openSearches = [];              // objetos search con panel abierto
 
-async function api(path, opts){ const r = await fetch(path, opts);
-  if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.error||('Error '+r.status)); }
-  return r.json(); }
-
-async function cargarSearches(){
-  const d = await api('/api/searches'); searches = d.searches||[]; pintarChips(); }
-
-function pintarChips(){
-  const c = $('chips'); c.innerHTML='';
-  searches.forEach(s=>{
-    const el = document.createElement('div');
-    el.className = 'chip' + (filtro===s.id?' on':'') + (s.active?'':' paused');
-    el.innerHTML = `<span>${s.parsed?.titulo||s.pedido_raw.slice(0,40)}</span>
-      <span class="pause" title="${s.active?'Pausar':'Reactivar'}">${s.active?'⏸':'▶'}</span>
-      <span class="x" title="Eliminar búsqueda">✕</span>`;
-    el.querySelector('span').onclick = ()=>{ filtro = (filtro===s.id?null:s.id); pintarChips(); cargarMatches(); };
-    el.querySelector('.pause').onclick = async ev=>{ ev.stopPropagation();
-      await api(`/api/search/${s.id}/toggle`,{method:'POST'}); cargarSearches(); };
-    el.querySelector('.x').onclick = async ev=>{ ev.stopPropagation();
-      if(confirm('¿Eliminar esta búsqueda? Los resultados asociados dejan de mostrarse.')){
-        await api(`/api/search/${s.id}`,{method:'DELETE'});
-        if(filtro===s.id) filtro=null;
-        cargarSearches(); cargarMatches(); } };
-    c.appendChild(el);
-  });
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3200);
 }
 
-function card(m, tipo){
-  const precio = m.precio ? `${(m.moneda||'').toUpperCase()} ${Number(m.precio).toLocaleString('es-AR')}` : 'Precio a consultar';
-  const razones = (m.razones||[]).map(r=>`<li>${r}</li>`).join('');
-  const faltan = (m.faltantes||[]).length ? `<div class="faltan">A confirmar: ${m.faltantes.join(' · ')}</div>` : '';
-  const alertas = (m.alertas||[]).length ? `<div class="alerta">⚠ ${m.alertas.join(' · ')}</div>` : '';
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error || ('Error ' + r.status)); }
+  return r.json();
+}
+
+// ── Selector de portales ──────────────────────────────────────────────────────
+async function cargarPortales() {
+  try {
+    const d = await api('/api/portals');
+    portalesDisponibles = d.portals || [];
+  } catch(e) {
+    portalesDisponibles = [];
+  }
+  pintarSelectorPortales();
+}
+
+function pintarSelectorPortales() {
+  const c = $('psChips');
+  if (!c) return;
+  const todos = portalesSeleccionados === null;
+  let html = `<span class="ps-chip${todos ? ' on' : ''}" data-id="__todos__">Todos los portales</span>`;
+  for (const p of portalesDisponibles) {
+    const on = !todos && portalesSeleccionados.has(p.id);
+    const notaAttr = p.nota ? ` data-nota="1" title="${p.nota}"` : '';
+    const badge = p.nota ? ' ⓘ' : '';
+    html += `<span class="ps-chip${on ? ' on' : ''}" data-id="${p.id}"${notaAttr}>${p.nombre}${badge}</span>`;
+  }
+  c.innerHTML = html;
+  c.querySelectorAll('.ps-chip').forEach(el => el.onclick = () => togglePortal(el.dataset.id));
+}
+
+function togglePortal(id) {
+  if (id === '__todos__') {
+    portalesSeleccionados = null;
+  } else {
+    if (portalesSeleccionados === null) {
+      portalesSeleccionados = new Set([id]);
+    } else {
+      portalesSeleccionados.has(id) ? portalesSeleccionados.delete(id) : portalesSeleccionados.add(id);
+      if (portalesSeleccionados.size === 0 || portalesSeleccionados.size === portalesDisponibles.length) {
+        portalesSeleccionados = null;
+      }
+    }
+  }
+  pintarSelectorPortales();
+}
+
+function resetPortalesSelector() {
+  portalesSeleccionados = null;
+  pintarSelectorPortales();
+}
+
+function getPortalesParaEnviar() {
+  return portalesSeleccionados ? [...portalesSeleccionados] : null;
+}
+
+// ── Resumen de criterios ──────────────────────────────────────────────────────
+function criteriaSummary(search) {
+  const p = search.parsed || {};
+  const parts = [];
+  if (p.operacion) parts.push(p.operacion.charAt(0).toUpperCase() + p.operacion.slice(1));
+  if (p.tipo) parts.push(p.tipo.charAt(0).toUpperCase() + p.tipo.slice(1));
+  if (p.zonas?.length) parts.push(p.zonas.map(z => z.replace(/-/g, ' ')).join(', '));
+  if (p.precio_max) {
+    const m = (p.moneda || '').toUpperCase();
+    parts.push(`hasta ${m}\u00a0${Number(p.precio_max).toLocaleString('es-AR')}`);
+  }
+  if (p.dormitorios_min) parts.push(`${p.dormitorios_min}+ dorm.`);
+  const portales = search.portales;
+  if (portales?.length) parts.push(`[${portales.join(', ')}]`);
+  return parts.join(' · ') || search.pedido_raw?.slice(0, 80);
+}
+
+// ── Card de propiedad ─────────────────────────────────────────────────────────
+function card(m) {
+  const precio = m.precio
+    ? `${(m.moneda || '').toUpperCase()} ${Number(m.precio).toLocaleString('es-AR')}`
+    : 'Precio a consultar';
+  const razones = (m.razones || []).map(r => `<li>${r}</li>`).join('');
+  const faltan = (m.faltantes || []).length
+    ? `<div class="faltan">A confirmar: ${m.faltantes.join(' · ')}</div>` : '';
+  const alertas = (m.alertas || []).length
+    ? `<div class="alerta">⚠ ${m.alertas.join(' · ')}</div>` : '';
   return `<div class="card">
     <div>
       <div class="portal">${m.portal}</div>
-      <div class="ct">${m.titulo||'(sin título)'} <span class="cz">${m.zona_texto||''}</span></div>
+      <div class="ct">${m.titulo || '(sin título)'} <span class="cz">${m.zona_texto || ''}</span></div>
       <div class="cp">${precio}</div>
       <ul class="rz">${razones}</ul>
       ${faltan}${alertas}
@@ -170,58 +265,187 @@ function card(m, tipo){
   </div>`;
 }
 
-async function cargarMatches(){
-  const q = filtro ? `?search_id=${filtro}` : '';
-  const d = await api('/api/matches'+q);
-  const ms = d.matches||[];
-  const matches = ms.filter(m=>m.veredicto==='match');
-  const revisar = ms.filter(m=>m.veredicto==='revisar' && m.score>0);
-  const r = $('resultados');
-  if(!searches.length){
-    r.innerHTML = `<div class="empty">Todavía no hay búsquedas activas.<br>
-      Escribí arriba el pedido de tu cliente y el agente empieza a rastrear.</div>`;
-    return;
-  }
-  let html = '';
-  html += `<div class="group g-match"><div class="gtitle">Match exacto · ${matches.length}</div>`;
-  html += matches.length ? matches.map(m=>card(m,'match')).join('')
-        : `<div class="empty">Sin matches exactos por ahora. El agente sigue rastreando cada hora.</div>`;
+function renderResults(matches) {
+  const exactos = matches.filter(m => m.veredicto === 'match');
+  const revisar = matches.filter(m => m.veredicto === 'revisar' && m.score > 0);
+  let html = `<div class="group g-match"><div class="gtitle">Match exacto · ${exactos.length}</div>`;
+  html += exactos.length
+    ? exactos.map(m => card(m)).join('')
+    : `<div class="empty">Sin matches exactos por ahora. El agente sigue rastreando cada hora.</div>`;
   html += `</div>`;
-  if(revisar.length){
+  if (revisar.length) {
     html += `<div class="group g-rev"><div class="gtitle">Para revisar · ${revisar.length}</div>`;
-    html += revisar.map(m=>card(m,'rev')).join('') + `</div>`;
+    html += revisar.map(m => card(m)).join('') + `</div>`;
   }
-  r.innerHTML = html;
+  return html;
 }
 
-async function cargarStatus(){
-  try{
+// ── Paneles de búsqueda ───────────────────────────────────────────────────────
+function actualizarEstadoPanel(search) {
+  const eyebrow = document.querySelector(`#panel-${search.id} .sp-eyebrow`);
+  const btnPause = $(`pause-${search.id}`);
+  if (!eyebrow || !btnPause) return;
+  const paused = !search.active;
+  eyebrow.className = 'sp-eyebrow' + (paused ? ' paused' : '');
+  eyebrow.textContent = paused ? 'Búsqueda pausada' : 'Búsqueda activa';
+  btnPause.textContent = paused ? '▶ Reactivar' : '⏸ Pausar';
+}
+
+function abrirPanel(search, scrollTo = false) {
+  if ($(`panel-${search.id}`)) return; // ya existe
+  openSearches.push(search);
+
+  const paused = !search.active;
+  const el = document.createElement('div');
+  el.className = 'search-panel';
+  el.id = `panel-${search.id}`;
+  el.innerHTML = `
+    <div class="sp-header">
+      <div class="sp-meta">
+        <div class="sp-eyebrow${paused ? ' paused' : ''}">${paused ? 'Búsqueda pausada' : 'Búsqueda activa'}</div>
+        <div class="sp-title">${search.parsed?.titulo || search.pedido_raw?.slice(0, 60)}</div>
+        <div class="sp-criteria">${criteriaSummary(search)}</div>
+      </div>
+      <div class="sp-actions">
+        <button class="ghost" id="pause-${search.id}">${paused ? '▶ Reactivar' : '⏸ Pausar'}</button>
+        <button class="ghost" id="close-${search.id}">✕ Cerrar</button>
+      </div>
+    </div>
+    <div class="sp-results" id="matches-${search.id}">
+      <div class="sp-loading">Cargando resultados…</div>
+    </div>`;
+
+  $('paneles').appendChild(el);
+  $(`pause-${search.id}`).onclick  = () => pausarSearch(search.id);
+  $(`close-${search.id}`).onclick  = () => cerrarPanel(search.id);
+  actualizarEstadoVacioPaneles();
+
+  if (scrollTo) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  cargarMatchesDePanel(search.id);
+}
+
+function actualizarEstadoVacioPaneles() {
+  const c = $('paneles');
+  const existe = c.querySelector('.paneles-empty');
+  if (openSearches.length === 0) {
+    if (!existe) {
+      c.innerHTML = `<div class="paneles-empty">
+        Todavía no hay búsquedas activas.<br>
+        Escribí el pedido de tu cliente y el agente empieza a rastrear.
+      </div>`;
+    }
+  } else if (existe) {
+    existe.remove();
+  }
+}
+
+async function cerrarPanel(sid) {
+  if (!confirm('¿Cerrar esta búsqueda? Se eliminará con todos sus resultados.')) return;
+  try { await api(`/api/search/${sid}`, { method: 'DELETE' }); }
+  catch(e) { toast(e.message); return; }
+  const el = $(`panel-${sid}`);
+  if (el) el.remove();
+  openSearches = openSearches.filter(s => s.id !== sid);
+  actualizarEstadoVacioPaneles();
+  // Resetear formulario para la siguiente búsqueda
+  $('pedido').value = '';
+  resetPortalesSelector();
+  $('crearHint').textContent = '';
+  toast('Búsqueda cerrada');
+}
+
+async function pausarSearch(sid) {
+  try {
+    const d = await api(`/api/search/${sid}/toggle`, { method: 'POST' });
+    const updated = d.search;
+    const idx = openSearches.findIndex(s => s.id === sid);
+    if (idx !== -1) openSearches[idx] = updated;
+    actualizarEstadoPanel(updated);
+  } catch(e) { toast(e.message); }
+}
+
+async function cargarMatchesDePanel(sid) {
+  const el = $(`matches-${sid}`);
+  if (!el) return;
+  try {
+    const d = await api(`/api/matches?search_id=${sid}`);
+    el.innerHTML = renderResults(d.matches || []);
+  } catch(e) {
+    el.innerHTML = `<div class="sp-loading" style="color:var(--red)">Error al cargar resultados</div>`;
+  }
+}
+
+// ── Carga inicial de búsquedas existentes ─────────────────────────────────────
+async function cargarSearches() {
+  try {
+    const d = await api('/api/searches');
+    for (const s of (d.searches || [])) {
+      if (!$(`panel-${s.id}`)) {
+        abrirPanel(s);
+      } else {
+        // Puede haber cambiado active
+        const idx = openSearches.findIndex(o => o.id === s.id);
+        if (idx !== -1) { openSearches[idx] = s; actualizarEstadoPanel(s); }
+      }
+    }
+    actualizarEstadoVacioPaneles();
+  } catch(e) { /* sin conexión — silenciar */ }
+}
+
+// ── Crear búsqueda ────────────────────────────────────────────────────────────
+$('crear').onclick = async () => {
+  const pedido = $('pedido').value.trim();
+  if (!pedido) { toast('Escribí el pedido primero'); return; }
+  $('crear').disabled = true;
+  $('crearHint').textContent = 'Interpretando el pedido…';
+  try {
+    const body = { pedido };
+    const portales = getPortalesParaEnviar();
+    if (portales) body.portales = portales;
+    const d = await api('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    $('pedido').value = '';
+    resetPortalesSelector();
+    toast(`Búsqueda creada: ${d.search.parsed.titulo}`);
+    abrirPanel(d.search, true); // scroll al nuevo panel
+  } catch(e) { toast(e.message); }
+  $('crear').disabled = false;
+  $('crearHint').textContent = '';
+};
+
+// ── Status y polling ──────────────────────────────────────────────────────────
+$('forzar').onclick = async () => {
+  await api('/api/scan', { method: 'POST' });
+  toast('Scan iniciado — los resultados aparecen a medida que se evalúan');
+};
+
+async function cargarStatus() {
+  try {
     const s = await api('/api/status');
     const key = s.api_key_configurada ? '' : ' · ⚠ falta ANTHROPIC_API_KEY';
     $('statusTxt').textContent =
-      `${s.total_propiedades} propiedades rastreadas · último scan: ${s.last_scan||'—'}` +
-      (s.scan_en_curso?' · scan en curso…':'') + key;
-  }catch(e){ $('statusTxt').textContent = 'Sin conexión con el agente'; }
+      `${s.total_propiedades} propiedades rastreadas · último scan: ${s.last_scan || '—'}` +
+      (s.scan_en_curso ? ' · scan en curso…' : '') + key;
+  } catch(e) { $('statusTxt').textContent = 'Sin conexión con el agente'; }
 }
 
-$('crear').onclick = async ()=>{
-  const pedido = $('pedido').value.trim();
-  if(!pedido){ toast('Escribí el pedido primero'); return; }
-  $('crear').disabled = true; $('crearHint').textContent = 'Interpretando el pedido…';
-  try{
-    const d = await api('/api/search',{method:'POST',
-      headers:{'Content-Type':'application/json'}, body:JSON.stringify({pedido})});
-    $('pedido').value=''; toast(`Búsqueda creada: ${d.search.parsed.titulo}`);
-    await cargarSearches(); cargarMatches();
-  }catch(e){ toast(e.message); }
-  $('crear').disabled = false; $('crearHint').textContent='';
-};
+async function refreshAll() {
+  for (const s of openSearches) {
+    await cargarMatchesDePanel(s.id);
+  }
+  cargarStatus();
+}
 
-$('forzar').onclick = async ()=>{ await api('/api/scan',{method:'POST'});
-  toast('Scan iniciado — los resultados aparecen a medida que se evalúan'); };
-
-(async ()=>{ await cargarSearches(); cargarMatches(); cargarStatus();
-  setInterval(()=>{ cargarMatches(); cargarStatus(); }, 30000); })();
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async () => {
+  await cargarPortales();
+  await cargarSearches();
+  cargarStatus();
+  setInterval(refreshAll, 30000);
+})();
 </script>
 </body>
 </html>
