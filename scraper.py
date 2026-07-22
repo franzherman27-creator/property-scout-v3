@@ -104,7 +104,7 @@ def parse_precio(texto: str):
         return None, moneda
 
 
-def _prop(portal, url, titulo="", precio_txt="", zona_texto=""):
+def _prop(portal, url, titulo="", precio_txt="", zona_texto="", imagen=None):
     precio, moneda = parse_precio(precio_txt)
     if precio is not None and moneda is not None:
         fx.warn_if_absurd(precio, moneda, url)
@@ -120,6 +120,7 @@ def _prop(portal, url, titulo="", precio_txt="", zona_texto=""):
         "zona_texto": zona_clean,
         "zona_canonica": zonas.normalizar(zona_clean, titulo_clean),
         "descripcion": "",
+        "imagen": imagen or None,
         "fecha_detectada": time.strftime("%Y-%m-%d %H:%M"),
     }
 
@@ -170,14 +171,23 @@ async def _check_blocked(page, portal) -> bool:
 
 
 async def _sweep_links(page, portal: str) -> list:
-    """Junta links de detalle + texto del contenedor. Si trae 0, loguea una
-    muestra de hrefs para calibrar el patrón sin adivinar."""
+    """Junta links de detalle + texto + imagen del contenedor. Si trae 0,
+    loguea una muestra de hrefs para calibrar el patrón sin adivinar."""
     anchors = await page.eval_on_selector_all(
         "a[href]",
-        """els => els.map(a => ({
-              href: a.href,
-              text: (a.closest('div,article,li,section') || a).innerText.slice(0, 400)
-           }))""",
+        """els => els.map(a => {
+              const cont = a.closest('div,article,li,section') || a;
+              const img = cont.querySelector('img[data-src], img[src]:not([src^="data:"])') || cont.querySelector('img');
+              let imagen = '';
+              if (img) {
+                imagen = img.getAttribute('data-src')
+                      || img.getAttribute('data-lazy-src')
+                      || img.getAttribute('data-original')
+                      || (img.src && !img.src.startsWith('data:') ? img.src : '')
+                      || '';
+              }
+              return { href: a.href, text: cont.innerText.slice(0, 400), imagen };
+           })""",
     )
     props, seen = [], set()
     pattern = DETAIL_PATTERNS[portal]
@@ -191,6 +201,7 @@ async def _sweep_links(page, portal: str) -> list:
                 portal, href,
                 titulo=texto.split("\n")[0][:150] if texto else href,
                 precio_txt=precio_m.group(0) if precio_m else "",
+                imagen=a.get("imagen") or None,
             ))
         if len(props) >= MAX_CARDS_PER_PORTAL:
             break
@@ -351,6 +362,7 @@ def scrape_mercadolibre(search) -> list:
                         fx.warn_if_absurd(precio_raw, moneda_ml, url)
                     titulo_ml = item.get("title", "")[:200]
                     zona_ml = (item.get("location", {}) or {}).get("address_line", "")[:200]
+                    thumb = item.get("thumbnail") or None
                     props.append({
                         "id": make_id(url, "mercadolibre"),
                         "portal": "mercadolibre",
@@ -361,6 +373,7 @@ def scrape_mercadolibre(search) -> list:
                         "zona_texto": zona_ml,
                         "zona_canonica": zonas.normalizar(zona_ml, titulo_ml),
                         "descripcion": "",
+                        "imagen": thumb,
                         "fecha_detectada": time.strftime("%Y-%m-%d %H:%M"),
                     })
                 return _dedup(props)
@@ -389,10 +402,17 @@ def scrape_mercadolibre(search) -> list:
             cont = a.find_parent(["li", "div", "article"]) or a
             texto = cont.get_text(" · ", strip=True)[:450]
             precio_m = re.search(r"(US\$|USD|U\$S|\$)\s?[\d.,]+", texto)
+            img_tag = cont.find("img")
+            imagen = None
+            if img_tag:
+                imagen = (img_tag.get("data-src") or img_tag.get("src") or None)
+                if imagen and imagen.startswith("data:"):
+                    imagen = None
             props.append(_prop(
                 "mercadolibre", href,
                 titulo=a.get_text(strip=True) or texto[:100],
                 precio_txt=precio_m.group(0) if precio_m else "",
+                imagen=imagen,
             ))
             if len(props) >= MAX_CARDS_PER_PORTAL:
                 break
@@ -429,10 +449,17 @@ def scrape_inmobusqueda(search) -> list:
                     cont = a.find_parent(["div", "li", "article"])
                     texto = cont.get_text(" ", strip=True)[:400] if cont else a.get_text(strip=True)
                     precio_m = re.search(r"(USD|US\$|U\$S|\$)\s?[\d.,]+", texto)
+                    img_tag = cont.find("img") if cont else None
+                    imagen = None
+                    if img_tag:
+                        imagen = (img_tag.get("data-src") or img_tag.get("src") or None)
+                        if imagen and imagen.startswith("data:"):
+                            imagen = None
                     props.append(_prop(
                         "inmobusqueda", href,
                         titulo=a.get_text(strip=True) or texto[:80],
                         precio_txt=precio_m.group(0) if precio_m else "",
+                        imagen=imagen,
                     ))
         except Exception as e:
             log.warning("inmobusqueda %s: %s", url[:70], e)
@@ -472,11 +499,18 @@ def scrape_comunidad(search) -> list:
                 cont = a.find_parent(["div", "li", "article"]) or a
                 texto = cont.get_text(" · ", strip=True)[:400]
                 precio_m = re.search(r"(USD|US\$|U\$S|\$)\s?[\d.,]+", texto)
+                img_tag = cont.find("img")
+                imagen = None
+                if img_tag:
+                    imagen = (img_tag.get("data-src") or img_tag.get("src") or None)
+                    if imagen and imagen.startswith("data:"):
+                        imagen = None
                 props.append(_prop(
                     "comunidad", href,
                     titulo=a.get_text(strip=True) or texto[:100],
                     precio_txt=precio_m.group(0) if precio_m else "",
                     zona_texto="",
+                    imagen=imagen,
                 ))
                 if len(props) >= MAX_CARDS_PER_PORTAL:
                     break
@@ -594,6 +628,15 @@ async def enrich_playwright(context, props: list):
                 prop["descripcion"] = re.sub(r"\n{3,}", "\n\n", texto or "").strip()[:3500]
                 if not prop["titulo"]:
                     prop["titulo"] = (await page.title() or "")[:200]
+                if not prop.get("imagen"):
+                    og = await page.evaluate(
+                        """() => {
+                            const m = document.querySelector('meta[property="og:image"]');
+                            return m ? m.getAttribute('content') : '';
+                        }"""
+                    )
+                    if og and not og.startswith("data:"):
+                        prop["imagen"] = og
             except Exception as e:
                 log.warning("enrich %s: %s", prop["url"][:80], e)
     finally:
@@ -607,6 +650,12 @@ def enrich_requests(props: list):
                 "User-Agent": UA, "Accept-Language": "es-AR,es;q=0.9",
             }, timeout=20)
             soup = BeautifulSoup(r.text, "lxml")
+            if not prop.get("imagen"):
+                og = soup.find("meta", {"property": "og:image"})
+                if og:
+                    src = og.get("content") or ""
+                    if src and not src.startswith("data:"):
+                        prop["imagen"] = src
             for tag in soup(["script", "style", "nav", "footer", "header"]):
                 tag.decompose()
             cont = soup.select_one(

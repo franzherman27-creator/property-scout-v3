@@ -308,7 +308,7 @@ def matches():
                 continue
             out.append({**{k: p.get(k) for k in
                            ("id", "portal", "url", "titulo", "precio",
-                            "moneda", "zona_texto", "fecha_detectada")},
+                            "moneda", "zona_texto", "fecha_detectada", "imagen")},
                         "search_id": s_id, **score})
     out.sort(key=lambda x: x.get("score", 0), reverse=True)
     return jsonify({"matches": out, "last_scan": db.get("last_scan")})
@@ -354,6 +354,7 @@ def ingest_properties():
         p.setdefault("moneda", None)
         p.setdefault("zona_texto", "")
         p.setdefault("descripcion", "")
+        p.setdefault("imagen", None)
         p.setdefault("fecha_detectada", datetime.now().strftime("%Y-%m-%d %H:%M"))
         p.setdefault("scores", {})
         valid.append(p)
